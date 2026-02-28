@@ -31,19 +31,31 @@ export default function LoanDetail({ id, onBack }) {
       <button onClick={onBack}>Back</button>
       <h2>Loan #{loan.onChainId}</h2>
       <div>Amount: {String(loan.amount)}</div>
-      <div>Duration: {loan.duration} days</div>
+      <div>Duration: {loan.duration} hours</div>
       <div>Max rate: {loan.maxRate}</div>
 
-      <h3>Bids</h3>
+      <h3>Bids (sealed, private)</h3>
+      <p style={{fontStyle:'italic', color:'#555'}}>
+        Lender identities are hidden to preserve auction privacy – bids are only
+        visible after the deadline and cannot be undercut.
+      </p>
       {bids.length===0 && <p>No bids yet</p>}
-      {bids.map(b => (
-        <div key={b.id} style={{borderBottom:'1px solid #eef2f7', padding:'8px 0'}}>
-          <div>By: {b.lenderUnlink}</div>
-          <div>Amount: {String(b.amount)}</div>
-          <div>Rate: {b.rate}</div>
-          <div>Status: {b.status}</div>
-        </div>
-      ))}
+      {bids.map(b => {
+        const hidden = new Date() < new Date(loan.deadline) && loan.status === 'OPEN';
+        return (
+          <div key={b.id} style={{borderBottom:'1px solid #eef2f7', padding:'8px 0'}}>
+            {hidden ? (
+              <div style={{fontStyle:'italic', color:'#777'}}>Bid details hidden until deadline</div>
+            ) : (
+              <>
+                <div>Amount: {String(b.amount)}</div>
+                <div>Rate: {b.rate}</div>
+                <div>Status: {b.status}</div>
+              </>
+            )}
+          </div>
+        );
+      })}
 
       <h3>Submit Bid</h3>
       <form onSubmit={submit} className="row" style={{flexDirection:'column', gap:8}}>

@@ -21,8 +21,10 @@ router.post('/loans', async (req, res) => {
     const profile = await prisma.creditProfile.findUnique({ where: { unlinkAddress: borrowerUnlink } });
     if (!profile) return res.status(400).json({ error: 'Complete onboarding first' });
 
+    // use duration (in hours) as the bidding window on the marketplace
     const deadline = new Date();
-    deadline.setHours(deadline.getHours() + 24); // 24hr bidding window
+    deadline.setHours(deadline.getHours() + Number(duration));
+    console.log('[Loans] deadline set to', deadline.toISOString());
 
     const loan = await prisma.loan.create({
       data: {
