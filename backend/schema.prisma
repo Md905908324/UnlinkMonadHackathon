@@ -1,50 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
 
 model Loan {
-  id              String    @id @default(uuid())
-  onChainId       Int       @unique  // matches your smart contract ID
-  borrowerUnlink  String            // borrower's unlink1... address
-  creditScore     Int               // fetched at request time
-  amount          BigInt            // loan amount in USDC (wei)
-  duration        Int               // days
-  deadline        DateTime          // when bidding closes
-  maxRate         Float             // borrower's interest rate cap (e.g. 0.12)
-  status          LoanStatus        @default(OPEN)
-  createdAt       DateTime          @default(now())
-  
-  bids            Bid[]
+  id             String   @id @default(uuid())
+  onChainId      Int      @unique
+  borrowerUnlink String
+  creditScore    Int
+  amount         String
+  duration       Int
+  deadline       DateTime
+  maxRate        Float
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  bids           Bid[]
 }
 
 model Bid {
-  id              String    @id @default(uuid())
-  loanId          String
-  loan            Loan      @relation(fields: [loanId], references: [id])
-  lenderUnlink    String            // lender's unlink1... address
-  amount          BigInt            // how much they're willing to lend
-  rate            Float             // interest rate offered (e.g. 0.10)
-  status          BidStatus         @default(PENDING)
-  submittedAt     DateTime          @default(now())
-  
-  @@index([loanId, rate])           // critical — agent sorts by rate constantly
+  id           String   @id @default(uuid())
+  loanId       String
+  loan         Loan     @relation(fields: [loanId], references: [id])
+  lenderUnlink String
+  amount       String
+  rate         Float
+  status       String   @default("PENDING")
+  submittedAt  DateTime @default(now())
+  paid         Boolean  @default(false)
+  paidAmount   String   @default("0")
+  paymentRelay  String?
+
+  @@index([loanId, rate])
 }
 
 model CreditProfile {
-  id              String    @id @default(uuid())
-  unlinkAddress   String    @unique
-  walletAddress   String    @unique  // their EOA
-  creditScore     Int
-  declaredIncome  Int               // annual, USD
-  createdAt       DateTime          @default(now())
-}
-
-enum LoanStatus {
-  OPEN        // accepting bids
-  MATCHED     // agent executed, loan active
-  REPAID      // borrower repaid
-  DEFAULTED   // missed repayment, liquidated
-}
-
-enum BidStatus {
-  PENDING     // submitted, waiting for deadline
-  MATCHED     // accepted by agent, funds sent to borrower
-  REFUNDED    // rejected by agent, funds returned
+  id             String   @id @default(uuid())
+  unlinkAddress  String   @unique
+  walletAddress  String   @unique
+  creditScore    Int
+  declaredIncome Int
+  createdAt      DateTime @default(now())
 }

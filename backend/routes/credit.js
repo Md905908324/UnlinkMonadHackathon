@@ -1,7 +1,8 @@
 // routes/credit.js
-const express = require('express');
+import express from 'express';
+import { prisma } from '../server.js';
+
 const router = express.Router();
-const { prisma } = require('../server');
 
 // POST /api/credit — mock KYC onboarding
 router.post('/credit', async (req, res) => {
@@ -30,4 +31,4 @@ router.get('/credit/:address', async (req, res) => {
   res.json(profile);
 });
 
-module.exports = router;
+export default router;

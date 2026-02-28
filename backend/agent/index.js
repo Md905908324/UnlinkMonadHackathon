@@ -1,17 +1,43 @@
 // agent/index.js
-const { createUnlink } = require('@unlink-xyz/node');
-const cron = require('node-cron');
-const { prisma } = require('../server');
+import { initUnlink, waitForConfirmation, TimeoutError, TransactionFailedError } from '@unlink-xyz/node';
+import cron from 'node-cron';
+import { prisma } from '../server.js';
 
 // initialize the agent once and reuse
 let agent;
 async function getAgent() {
   if (agent) return agent;
-  agent = await createUnlink({
-    mnemonic: process.env.AGENT_MNEMONIC,
+  
+  agent = await initUnlink({
     chain: 'monad-testnet',
+    setup: false,
+    sync: false,
   });
+  
+  // Import the mnemonic if AGENT_MNEMONIC is provided
+  if (process.env.AGENT_MNEMONIC) {
+    await agent.seed.importMnemonic(process.env.AGENT_MNEMONIC);
+    await agent.accounts.create();
+    await agent.sync();
+  }
+  
   return agent;
+}
+
+async function getAgentAddress() {
+  const a = await getAgent();
+  try {
+    const active = await a.accounts.getActive();
+    return active?.address ?? active?.publicKey ?? null;
+  } catch (e) {
+    // best-effort: fallback to accounts.get(0)
+    try {
+      const acc = await a.accounts.get(0);
+      return acc?.address ?? null;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 async function processExpiredLoans() {
@@ -70,12 +96,20 @@ async function executeLoanMatch(loan) {
       where: { id: loan.id },
       data: { status: 'DEFAULTED' }
     });
+    const agentInstance = await getAgent();
     for (const bid of bids) {
-      await (await getAgent()).send([{
-        token: process.env.USDC_ADDRESS,
-        recipient: bid.lenderUnlink,
-        amount: bid.amount
-      }]);
+      try {
+        const result = await agentInstance.send({
+          transfers: [{
+            token: process.env.USDC_ADDRESS,
+            recipient: bid.lenderUnlink,
+            amount: bid.amount
+          }]
+        });
+        await waitForConfirmation(agentInstance, result.relayId);
+      } catch (err) {
+        console.error(`[Agent] Failed to refund bid ${bid.id}:`, err);
+      }
       await prisma.bid.update({
         where: { id: bid.id },
         data: { status: 'REFUNDED' }
@@ -90,24 +124,67 @@ async function executeLoanMatch(loan) {
 
   try {
     const agentInstance = await getAgent();
-    await agentInstance.send([{ token: process.env.USDC_ADDRESS, recipient: loan.borrowerUnlink, amount: loan.amount }]);
+    
+    // 1. Send loan amount to borrower
+    const borrowerResult = await agentInstance.send({
+      transfers: [{
+        token: process.env.USDC_ADDRESS,
+        recipient: loan.borrowerUnlink,
+        amount: loan.amount
+      }]
+    });
+    await waitForConfirmation(agentInstance, borrowerResult.relayId);
 
+    // 2. Refund unmatched lenders
     for (const bid of unmatched) {
       const refundAmount = bid.refundAmount ?? bid.amount;
-      await agentInstance.send([{ token: process.env.USDC_ADDRESS, recipient: bid.lenderUnlink, amount: refundAmount }]);
+      try {
+        const result = await agentInstance.send({
+          transfers: [{
+            token: process.env.USDC_ADDRESS,
+            recipient: bid.lenderUnlink,
+            amount: refundAmount
+          }]
+        });
+        await waitForConfirmation(agentInstance, result.relayId);
+      } catch (err) {
+        console.error(`[Agent] Failed to refund bidder ${bid.lenderUnlink}:`, err);
+      }
     }
 
-    await prisma.loan.update({ where: { id: loan.id }, data: { status: 'MATCHED' } });
+    // 3. Update database
+    await prisma.loan.update({
+      where: { id: loan.id },
+      data: { status: 'MATCHED' }
+    });
+
     for (const bid of matched) {
-      await prisma.bid.update({ where: { id: bid.id }, data: { status: 'MATCHED' } });
+      await prisma.bid.update({
+        where: { id: bid.id },
+        data: { status: 'MATCHED' }
+      });
     }
+
     for (const bid of unmatched) {
-      await prisma.bid.update({ where: { id: bid.id }, data: { status: 'REFUNDED' } });
+      await prisma.bid.update({
+        where: { id: bid.id },
+        data: { status: 'REFUNDED' }
+      });
     }
+
+    const weightedRate = matched.reduce((sum, bid) => {
+      return sum + (Number(bid.acceptedAmount) / Number(loan.amount)) * bid.rate;
+    }, 0);
 
     console.log(`[Agent] Loan ${loan.id} matched at ${(weightedRate * 100).toFixed(2)}% APR`);
   } catch (err) {
-    console.error(`[Agent] Failed to process loan ${loan.id}:`, err);
+    if (err instanceof TimeoutError) {
+      console.error(`[Agent] Timeout processing loan ${loan.id}:`, err.txId);
+    } else if (err instanceof TransactionFailedError) {
+      console.error(`[Agent] Transaction failed for loan ${loan.id} - state: ${err.state}, reason: ${err.reason}`);
+    } else {
+      console.error(`[Agent] Failed to process loan ${loan.id}:`, err);
+    }
   }
 }
 
@@ -128,9 +205,21 @@ async function handleDefault(loan) {
   const matchedBids = await prisma.bid.findMany({ where: { loanId: loan.id, status: 'MATCHED' } });
   const totalLent = matchedBids.reduce((sum, b) => sum + b.amount, 0n);
   const agentInstance = await getAgent();
+  
   for (const bid of matchedBids) {
     const share = (bid.amount * loan.amount) / totalLent;
-    await agentInstance.send([{ token: process.env.USDC_ADDRESS, recipient: bid.lenderUnlink, amount: share }]);
+    try {
+      const result = await agentInstance.send({
+        transfers: [{
+          token: process.env.USDC_ADDRESS,
+          recipient: bid.lenderUnlink,
+          amount: share
+        }]
+      });
+      await waitForConfirmation(agentInstance, result.relayId);
+    } catch (err) {
+      console.error(`[Agent] Failed to distribute collateral to ${bid.lenderUnlink}:`, err);
+    }
   }
   console.log(`[Agent] Default on ${loan.id} — collateral distributed to lenders`);
 }
@@ -139,4 +228,4 @@ async function handleDefault(loan) {
 cron.schedule('* * * * *', processExpiredLoans);
 cron.schedule('*/5 * * * *', checkForDefaults);
 
-module.exports = { processExpiredLoans, checkForDefaults };
+export { processExpiredLoans, checkForDefaults, getAgentAddress };

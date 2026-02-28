@@ -1,7 +1,9 @@
 // routes/loans.js
-const express = require('express');
+import express from 'express';
+import { prisma } from '../server.js';
+import { getAgentAddress } from '../agent/index.js';
+
 const router = express.Router();
-const { prisma } = require('../server');
 
 // POST /api/loans — borrower creates request
 router.post('/loans', async (req, res) => {
@@ -78,10 +80,13 @@ router.post('/loans/:id/bids', async (req, res) => {
   if (existing) return res.status(400).json({ error: 'Already bid on this loan' });
 
   const bid = await prisma.bid.create({
-    data: { loanId: loan.id, lenderUnlink, amount: BigInt(amount), rate }
+    data: { loanId: loan.id, lenderUnlink, amount: BigInt(amount), rate, paid: false }
   });
 
-  res.json(bid);
+  // Provide payment instructions (agent escrow address) for lender to send funds.
+  const agentAddr = await getAgentAddress();
+
+  res.json({ bid, paymentInfo: { agentUnlinkAddress: agentAddr, note: 'Send funds to the agent escrow address before deadline' } });
 });
 
 // GET /api/loans/:id/bids — borrower sees bids on their loan (auth required)
@@ -102,9 +107,16 @@ router.post('/admin/trigger/:id', async (req, res) => {
     where: { id: req.params.id },
     data: { deadline: new Date(Date.now() - 1000) }
   });
-  const { processExpiredLoans } = require('../agent');
+  const { processExpiredLoans } = await import('../agent/index.js');
   await processExpiredLoans();
   res.json({ triggered: true });
 });
 
-module.exports = router;
+// GET /api/agent/address — returns agent's unlink address for deposits
+router.get('/agent/address', async (req, res) => {
+  const addr = await getAgentAddress();
+  if (!addr) return res.status(500).json({ error: 'Agent address not available' });
+  res.json({ address: addr });
+});
+
+export default router;

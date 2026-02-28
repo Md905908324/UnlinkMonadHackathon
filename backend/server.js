@@ -1,26 +1,24 @@
 // server.js
-const express = require('express');
-const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
-const dotenv = require('dotenv');
+import express from 'express';
+import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
+import { processExpiredLoans, checkForDefaults } from './agent/index.js';
+import loansRouter from './routes/loans.js';
+import creditRouter from './routes/credit.js';
 
 // load .env values at startup
 dotenv.config();
 
-const { processExpiredLoans, checkForDefaults } = require('./agent');
-
-const prisma = new PrismaClient();
+export const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
 // mount routes
-app.use('/api', require('./routes/loans'));
-app.use('/api', require('./routes/credit'));
-
-// expose prisma for other modules if needed
-module.exports.prisma = prisma;
+app.use('/api', loansRouter);
+app.use('/api', creditRouter);
 
 console.log('[Agent] Starting...');
 
