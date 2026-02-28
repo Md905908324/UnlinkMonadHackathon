@@ -37,3 +37,12 @@ export async function triggerLoan(id) {
   const res = await fetch(`${API}/admin/trigger/${id}`, { method: 'POST' })
   return res.json()
 }
+
+export async function postLoan(loan) {
+  const res = await fetch(`${API}/loans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(loan)
+  });
+  return res.json();
+}
