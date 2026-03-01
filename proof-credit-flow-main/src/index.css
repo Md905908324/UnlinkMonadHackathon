@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --background: 224 50% 7%;
+    --foreground: 0 0% 100%;
+
+    --card: 221 39% 11%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 221 39% 11%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 217 91% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 221 39% 16%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 221 39% 16%;
+    --muted-foreground: 218 11% 65%;
+
+    --accent: 217 91% 53%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 43 96% 51%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 221 39% 18%;
+    --input: 221 39% 18%;
+    --ring: 217 91% 53%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 221 39% 11%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 217 91% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 221 39% 16%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 221 39% 18%;
+    --sidebar-ring: 217 91% 53%;
+
+    --font-heading: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    --glow-primary: 0 0 20px hsl(217 91% 53% / 0.3);
+    --glow-primary-strong: 0 0 40px hsl(217 91% 53% / 0.5);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+@layer components {
+  .glow-card {
+    @apply rounded-xl bg-card border border-border transition-all duration-300;
+    &:hover {
+      border-color: hsl(var(--primary));
+      box-shadow: var(--glow-primary);
+    }
+  }
+
+  .glow-card-active {
+    border-color: hsl(var(--primary));
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-button {
+    @apply bg-primary text-primary-foreground font-medium rounded-xl px-6 py-3 transition-all duration-300;
+    &:hover {
+      box-shadow: var(--glow-primary-strong);
+      transform: translateY(-1px);
+    }
+  }
+
+  .glow-button-outline {
+    @apply bg-transparent text-primary border border-primary font-medium rounded-xl px-6 py-3 transition-all duration-300;
+    &:hover {
+      background: hsl(var(--primary) / 0.1);
+      box-shadow: var(--glow-primary);
+    }
+  }
+
+  .badge-low {
+    @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
+  }
+  .badge-medium {
+    @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+  }
+  .badge-high {
+    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .progress-fill {
+    @apply bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-700;
+  }
+
+  .pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% {
+      box-shadow: 0 0 20px hsl(217 91% 53% / 0.2);
+    }
+    50% {
+      box-shadow: 0 0 40px hsl(217 91% 53% / 0.5);
+    }
+  }
+
+  @keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+  }
+}
