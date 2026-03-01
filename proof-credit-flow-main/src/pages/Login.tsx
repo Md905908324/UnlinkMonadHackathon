@@ -34,8 +34,8 @@ const Login = () => {
         derivedAddress = wallet.address;
       }
       
-      // Connect wallet
-      connect();
+      // Connect wallet for this derived address
+      connect(derivedAddress);
       
       await createCreditProfile({
         unlinkAddress: derivedAddress,

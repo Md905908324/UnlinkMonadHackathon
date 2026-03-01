@@ -3,16 +3,16 @@ import { Sparkles } from "lucide-react";
 interface Props {
   aprRange: [number, number];
   suggestedMaxLoan: number;
-  suggestedDuration: string;
+  suggestedRepaymentDays: number;
   riskTier: "Low" | "Medium" | "High";
   onApplyAPR: (apr: number) => void;
   onApplyAmount: (amount: number) => void;
-  onApplyDuration: (duration: string) => void;
+  onApplyDuration: (repaymentDays: number) => void;
   recommendedAPR: number;
 }
 
 const RecommendedTermsCard = ({
-  aprRange, suggestedMaxLoan, suggestedDuration, riskTier,
+  aprRange, suggestedMaxLoan, suggestedRepaymentDays, riskTier,
   onApplyAPR, onApplyAmount, onApplyDuration, recommendedAPR,
 }: Props) => (
   <div className="glow-card glow-card-active p-6">
@@ -26,12 +26,12 @@ const RecommendedTermsCard = ({
         <p className="font-semibold">{aprRange[0].toFixed(1)}% – {aprRange[1].toFixed(1)}%</p>
       </div>
       <div>
-        <p className="text-muted-foreground text-xs">Max Loan</p>
+        <p className="text-muted-foreground text-xs">Suggested Amount</p>
         <p className="font-semibold">${Math.round(suggestedMaxLoan).toLocaleString()}</p>
       </div>
       <div>
-        <p className="text-muted-foreground text-xs">Duration</p>
-        <p className="font-semibold">{suggestedDuration}</p>
+        <p className="text-muted-foreground text-xs">Suggested Repayment Time</p>
+        <p className="font-semibold">{suggestedRepaymentDays} day{suggestedRepaymentDays !== 1 ? "s" : ""}</p>
       </div>
     </div>
     <p className="text-xs text-muted-foreground mb-4">
@@ -44,7 +44,7 @@ const RecommendedTermsCard = ({
       <button onClick={() => onApplyAmount(suggestedMaxLoan)} className="glow-button-outline text-xs px-3 py-1.5">
         Apply Suggested Amount
       </button>
-      <button onClick={() => onApplyDuration(suggestedDuration)} className="glow-button-outline text-xs px-3 py-1.5">
+      <button onClick={() => onApplyDuration(suggestedRepaymentDays)} className="glow-button-outline text-xs px-3 py-1.5">
         Apply Suggested Duration
       </button>
     </div>

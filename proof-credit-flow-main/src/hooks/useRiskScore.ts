@@ -8,6 +8,7 @@ export interface RiskInputs {
   incomeVolatility: number; // 0-100
   pastDefaults: number;
   loanAmount: number;
+  collateralAmount: number;
   durationDays: number;
 }
 
@@ -21,6 +22,12 @@ export interface RiskScores {
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
+export function computeMaxLoanCap(monthlyIncome: number, durationDays: number): number {
+  const safeIncome = Math.max(0, monthlyIncome);
+  const safeDays = Math.max(0, durationDays);
+  return safeIncome * 0.8 * (safeDays / 30);
+}
+
 export const DURATION_PRESETS = [
   { label: "6 hours", days: 0.25 },
   { label: "12 hours", days: 0.5 },
@@ -33,14 +40,49 @@ export const DURATION_PRESETS = [
 ] as const;
 
 function computeRepayability(loanAmount: number, durationDays: number, monthlyIncome: number): number {
-  if (monthlyIncome <= 0) return 20;
-  const approxMonthlyPayment = (loanAmount * (1 + 0.12 * durationDays / 365)) / Math.max(1, durationDays / 30);
-  const pti = approxMonthlyPayment / monthlyIncome;
-  if (pti <= 0.10) return 100;
-  if (pti <= 0.20) return 80;
-  if (pti <= 0.30) return 60;
-  if (pti <= 0.40) return 40;
-  return 20;
+  if (monthlyIncome <= 0) return 5;
+  const normalizedLoanLoad = (loanAmount / monthlyIncome) / Math.max(0.25, durationDays / 30);
+  return clamp(100 - normalizedLoanLoad * 8, 0, 100);
+}
+
+function computeRepayabilityDynamic(
+  loanAmount: number,
+  collateralAmount: number,
+  durationDays: number,
+  monthlyIncome: number,
+  monthlyDebtPayments: number
+): number {
+  if (monthlyIncome <= 0) return 5;
+
+  const disposableIncome = Math.max(monthlyIncome - monthlyDebtPayments, 0);
+  const debtToIncome = clamp(monthlyDebtPayments / monthlyIncome, 0, 1.2);
+  const collateralRatio = loanAmount > 0 ? clamp(collateralAmount / loanAmount, 0, 1.5) : 0;
+  const termRelief = clamp(durationDays / 30, 0.25, 2.5);
+
+  const incomeBufferScore = clamp((disposableIncome / monthlyIncome) * 100, 0, 100);
+  const existingDebtScore = clamp(100 - debtToIncome * 120, 0, 100);
+  const loanLoadScore = computeRepayability(loanAmount, durationDays, monthlyIncome);
+  const collateralSupportScore = clamp(collateralRatio * 100, 0, 100);
+  const termScore = clamp(35 + termRelief * 25, 0, 100);
+
+  const weighted =
+    loanLoadScore * 0.34 +
+    incomeBufferScore * 0.24 +
+    existingDebtScore * 0.20 +
+    collateralSupportScore * 0.17 +
+    termScore * 0.05;
+
+  const loanToIncome = monthlyIncome > 0 ? loanAmount / monthlyIncome : 10;
+  const termPressure = clamp(30 / Math.max(durationDays, 1), 0.4, 8);
+  const overextension = loanToIncome * termPressure;
+  const overextensionPenalty =
+    overextension <= 2.0
+      ? 0
+      : overextension <= 3.2
+      ? (overextension - 2.0) * 12
+      : 14.4 + Math.pow(overextension - 3.2, 1.35) * 14;
+
+  return clamp(weighted - overextensionPenalty, 0, 100);
 }
 
 function computeIncomeStability(tenureMonths: number, volatility: number): number {
@@ -63,39 +105,78 @@ function computeIncomeStability(tenureMonths: number, volatility: number): numbe
 
 function computeCreditHistory(creditScore: number, pastDefaults: number): number {
   const creditNorm = clamp(((creditScore - 300) / 550) * 100, 0, 100);
-  const defaultPenalty = pastDefaults > 0 ? 30 : 0;
+  const defaultPenalty = clamp(pastDefaults * 18, 0, 55);
   return clamp(creditNorm - defaultPenalty, 0, 100);
 }
 
 export function computeRiskScores(inputs: RiskInputs): RiskScores {
-  const repayability = computeRepayability(inputs.loanAmount, inputs.durationDays, inputs.monthlyIncome);
+  const repayability = computeRepayabilityDynamic(
+    inputs.loanAmount,
+    inputs.collateralAmount,
+    inputs.durationDays,
+    inputs.monthlyIncome,
+    inputs.monthlyDebtPayments
+  );
   const incomeStability = computeIncomeStability(inputs.employmentTenure, inputs.incomeVolatility);
   const creditHistory = computeCreditHistory(inputs.creditScore, inputs.pastDefaults);
-  const overall = 0.45 * repayability + 0.30 * incomeStability + 0.25 * creditHistory;
-  const tier: RiskScores["tier"] = overall >= 80 ? "Low" : overall >= 60 ? "Medium" : "High";
+  const overall = 0.42 * repayability + 0.28 * incomeStability + 0.30 * creditHistory;
+  const tier: RiskScores["tier"] = overall >= 78 ? "Low" : overall >= 58 ? "Medium" : "High";
   return { repayability, incomeStability, creditHistory, overall, tier };
 }
 
-export function computeRecommendations(riskScore: number, monthlyIncome: number, repayability?: number) {
-  const recommendedAPR = clamp(6 + (100 - riskScore) * 0.15, 5, 30);
+export function computeRecommendations(inputs: {
+  overallScore: number;
+  repayability: number;
+  monthlyIncome: number;
+  monthlyDebtPayments: number;
+  loanAmount: number;
+  collateralAmount: number;
+  durationDays: number;
+}) {
+  const {
+    overallScore,
+    repayability,
+    monthlyIncome,
+    monthlyDebtPayments,
+    loanAmount,
+    collateralAmount,
+    durationDays,
+  } = inputs;
+
+  const safeLoanAmount = Math.max(0, loanAmount);
+  const safeCollateral = Math.max(0, collateralAmount);
+  const safeDurationDays = clamp(durationDays, 0, 365);
+  const effectiveDurationDays = Math.max(1, safeDurationDays);
+
+  const collateralRatio = safeLoanAmount > 0 ? clamp(safeCollateral / safeLoanAmount, 0, 1.5) : 0;
+  const loanToIncome = monthlyIncome > 0 ? safeLoanAmount / monthlyIncome : 10;
+  const durationRisk = clamp(Math.sqrt(effectiveDurationDays / 30), 0.2, 3.5);
+
+  const recommendedAPR = clamp(
+    4.5 + (100 - overallScore) * 0.09 + (100 - repayability) * 0.02 + loanToIncome * 1.25 + durationRisk * 0.85 - collateralRatio * 1.6,
+    4.5,
+    30
+  );
   const aprRange: [number, number] = [
-    clamp(recommendedAPR - 1.0, 5, 30),
-    clamp(recommendedAPR + 1.5, 5, 30),
+    clamp(recommendedAPR - 1.2, 4.5, 30),
+    clamp(recommendedAPR + 1.4, 4.5, 30),
   ];
-  const rawMax = monthlyIncome * (riskScore >= 80 ? 4 : riskScore >= 60 ? 2.5 : 1.5);
-  const suggestedMaxLoan = Math.round(clamp(rawMax, 500, 50000) / 100) * 100;
 
-  const rep = repayability ?? 50;
-  let suggestedDuration: string;
-  if (riskScore >= 80) {
-    suggestedDuration = "7 days";
-  } else if (riskScore >= 60) {
-    suggestedDuration = rep < 70 ? "3 days" : "5 days";
-  } else {
-    suggestedDuration = rep < 40 ? "12 hours" : "1 day";
-  }
+  const disposableIncome = Math.max(monthlyIncome - monthlyDebtPayments, 0);
+  const maxLoanCap = computeMaxLoanCap(monthlyIncome, safeDurationDays);
+  const riskMultiplier = overallScore >= 80 ? 0.95 : overallScore >= 65 ? 0.82 : overallScore >= 50 ? 0.68 : 0.5;
+  const affordability = clamp((disposableIncome / Math.max(monthlyIncome, 1)) * 1.2, 0.2, 1);
+  const collateralBoost = clamp(0.7 + collateralRatio * 0.3, 0.7, 1.1);
+  const rawMax = maxLoanCap * riskMultiplier * affordability * collateralBoost;
+  const suggestedMaxLoan = Math.round(clamp(rawMax, 0, 50000) / 100) * 100;
 
-  return { recommendedAPR, aprRange, suggestedMaxLoan, suggestedDuration };
+  let suggestedRepaymentDays: number;
+  const desiredByLoad = Math.ceil(clamp(loanToIncome * 22, 7, 180));
+  const collateralAdjustment = Math.round(clamp((0.65 - collateralRatio) * 55, -25, 45));
+  const scoreAdjustment = Math.round(clamp((70 - overallScore) * 0.9, -20, 35));
+  suggestedRepaymentDays = clamp(desiredByLoad + collateralAdjustment + scoreAdjustment, 3, 365);
+
+  return { recommendedAPR, aprRange, suggestedMaxLoan, suggestedRepaymentDays, maxLoanCap };
 }
 
 export function computeSuggestedBidAPR(riskScore: number, durationDays: number): number {
@@ -113,6 +194,7 @@ export function useRiskScore(inputs: RiskInputs): RiskScores {
     inputs.incomeVolatility,
     inputs.pastDefaults,
     inputs.loanAmount,
+    inputs.collateralAmount,
     inputs.durationDays,
   ]);
 }

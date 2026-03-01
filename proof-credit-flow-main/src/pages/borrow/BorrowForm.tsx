@@ -1,20 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle, Eye, ArrowRight, HelpCircle } from "lucide-react";
+import { CheckCircle, Eye, ArrowRight, HelpCircle, AlertCircle } from "lucide-react";
 import RiskSummaryStrip from "@/components/RiskSummaryStrip";
 import RecommendedTermsCard from "@/components/RecommendedTermsCard";
-import { useRiskScore, computeRecommendations, DURATION_PRESETS } from "@/hooks/useRiskScore";
+import { useRiskScore, computeRecommendations, DURATION_PRESETS, computeMaxLoanCap } from "@/hooks/useRiskScore";
 import { useBorrowContext } from "@/contexts/BorrowContext";
+
+type AprIndicator = "red" | "yellow" | "green";
 
 const BorrowForm = () => {
   const navigate = useNavigate();
   const { setFormData } = useBorrowContext();
-  const [amount, setAmount] = useState("10000");
-  const [collateral, setCollateral] = useState("5000");
-  const [maxApr, setMaxApr] = useState(8);
-  const [askDuration, setAskDuration] = useState("7 days");
-  const [repaymentDuration, setRepaymentDuration] = useState("7 days");
-  const [showProofModal, setShowProofModal] = useState(false);
 
   // Fixed credit profile (read-only, verified via ZK)
   const creditScore = "700";
@@ -24,23 +20,80 @@ const BorrowForm = () => {
   const incomeVolatility = "8";
   const pastDefaults = "0";
 
-  const repaymentDays = DURATION_PRESETS.find((p) => p.label === repaymentDuration)?.days ?? 7;
+  const monthlyIncomeNum = Number(monthlyIncome) || 0;
+  const [amount, setAmount] = useState(String(Math.round(monthlyIncomeNum * 0.5)));
+  const [collateral, setCollateral] = useState("0");
+  const [maxApr, setMaxApr] = useState(8);
+  const [askDuration, setAskDuration] = useState("7 days");
+  const [repaymentDays, setRepaymentDays] = useState(30);
+  const [showProofModal, setShowProofModal] = useState(false);
+
+  const normalizedRepaymentDays = Math.min(365, Math.max(0, Number(repaymentDays) || 0));
+  const normalizedAmount = Math.max(0, Number(amount) || 0);
+  const normalizedCollateral = Math.max(0, Number(collateral) || 0);
 
   const scores = useRiskScore({
     creditScore: Number(creditScore) || 300,
-    monthlyIncome: Number(monthlyIncome) || 0,
+    monthlyIncome: monthlyIncomeNum,
     monthlyDebtPayments: Number(monthlyDebtPayments) || 0,
     employmentTenure: Number(employmentTenure) || 0,
     incomeVolatility: Number(incomeVolatility) || 0,
     pastDefaults: Number(pastDefaults) || 0,
-    loanAmount: Number(amount) || 0,
-    durationDays: repaymentDays,
+    loanAmount: normalizedAmount,
+    collateralAmount: normalizedCollateral,
+    durationDays: Math.max(1, normalizedRepaymentDays),
   });
 
-  const recommendations = computeRecommendations(scores.overall, Number(monthlyIncome) || 0, scores.repayability);
+  const recommendations = computeRecommendations({
+    overallScore: scores.overall,
+    repayability: scores.repayability,
+    monthlyIncome: monthlyIncomeNum,
+    monthlyDebtPayments: Number(monthlyDebtPayments) || 0,
+    loanAmount: normalizedAmount,
+    collateralAmount: normalizedCollateral,
+    durationDays: normalizedRepaymentDays,
+  });
   const proofBadges = ["Income Verified", "Stability Verified", "Tenure Verified"];
+  const recommendedAPR = recommendations.recommendedAPR;
+  const aprDelta = maxApr - recommendedAPR;
+  const aprIndicator: AprIndicator = aprDelta <= -1 ? "red" : aprDelta >= 5 ? "yellow" : "green";
+  const aprIndicatorTitle = aprIndicator === "red"
+    ? `Might be too low (${Math.abs(aprDelta).toFixed(1)}% below AI recommended APR ${recommendedAPR.toFixed(1)}%)`
+    : aprIndicator === "yellow"
+    ? `Might be too high (${aprDelta.toFixed(1)}% above AI recommended APR ${recommendedAPR.toFixed(1)}%)`
+    : `Within AI-recommended range (target ${recommendedAPR.toFixed(1)}%)`;
 
-  const isUntilClear = repaymentDuration === "Until Clear";
+  const maxLoanCap = computeMaxLoanCap(monthlyIncomeNum, normalizedRepaymentDays);
+  const exceedsBorrowCap = normalizedAmount > maxLoanCap;
+  const exceedTitle = `Exceeds repayability cap: max suggested is $${Math.round(maxLoanCap).toLocaleString()} for ${normalizedRepaymentDays} day${normalizedRepaymentDays !== 1 ? "s" : ""}`;
+
+  const handleAmountChange = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      setAmount("0");
+      return;
+    }
+    setAmount(String(Math.max(0, Math.round(parsed))));
+  };
+
+  const handleCollateralChange = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      setCollateral("0");
+      return;
+    }
+    setCollateral(String(Math.max(0, Math.round(parsed))));
+  };
+
+  const handleRepaymentDaysChange = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      setRepaymentDays(0);
+      return;
+    }
+    const sanitized = Math.max(0, Math.round(parsed));
+    setRepaymentDays(Math.min(365, sanitized));
+  };
 
   const handleNavigateToConfirm = () => {
     setFormData({
@@ -48,7 +101,8 @@ const BorrowForm = () => {
       collateral,
       maxApr,
       askDuration,
-      repaymentDuration,
+      repaymentDurationDays: normalizedRepaymentDays,
+      riskTier: scores.tier,
     });
     navigate("/borrow/confirm");
   };
@@ -58,9 +112,6 @@ const BorrowForm = () => {
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Risk Summary Strip */}
         <RiskSummaryStrip scores={scores} />
-        {isUntilClear && (
-          <p className="text-xs text-muted-foreground text-center -mt-3">* Assumed 7d for risk estimate</p>
-        )}
 
         {/* Risk Banner */}
         <div className="glow-card glow-card-active p-6 animate-fade-in">
@@ -116,13 +167,38 @@ const BorrowForm = () => {
         <div className="animate-fade-in" style={{ animationDelay: "200ms" }}>
           <h2 className="font-heading text-2xl font-bold mb-4">Loan Details</h2>
           <div className="grid md:grid-cols-2 gap-4">
-            <FormField label="Amount Requested (USDC)" value={amount} onChange={setAmount} type="number" />
-            <FormField label="Collateral Deposit (USDC)" value={collateral} onChange={setCollateral} type="number" />
+            <FormField label="Amount Requested (USDC)" value={amount} onChange={handleAmountChange} type="number" />
+            <FormField label="Collateral Deposit (USDC)" value={collateral} onChange={handleCollateralChange} type="number" />
+          </div>
+
+          <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
+            <span>Repayability cap for current duration:</span>
+            <span className="font-semibold text-foreground">${Math.round(maxLoanCap).toLocaleString()}</span>
+            {exceedsBorrowCap && (
+              <span className="inline-flex items-center text-destructive" title={exceedTitle}>
+                <AlertCircle className="w-4 h-4" />
+              </span>
+            )}
           </div>
 
           <div className="mt-4">
             <label className="text-sm text-muted-foreground mb-2 block">
               Max APR Willing to Pay: <span className="text-primary font-semibold">{maxApr}%</span>
+              {aprIndicator === "red" && (
+                <span className="ml-2 inline-flex items-center text-destructive" title={aprIndicatorTitle}>
+                  <AlertCircle className="w-4 h-4" />
+                </span>
+              )}
+              {aprIndicator === "yellow" && (
+                <span className="ml-2 inline-flex items-center text-warning" title={aprIndicatorTitle}>
+                  <AlertCircle className="w-4 h-4" />
+                </span>
+              )}
+              {aprIndicator === "green" && (
+                <span className="ml-2 inline-flex items-center text-success" title={aprIndicatorTitle}>
+                  <CheckCircle className="w-4 h-4" />
+                </span>
+              )}
             </label>
             <input type="range" min={1} max={30} step={0.1} value={maxApr} onChange={(e) => setMaxApr(parseFloat(e.target.value))} className="w-full accent-primary" />
           </div>
@@ -137,12 +213,16 @@ const BorrowForm = () => {
               </select>
             </div>
             <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Length Until Repayment</label>
-              <select value={repaymentDuration} onChange={(e) => setRepaymentDuration(e.target.value)} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-foreground focus:border-primary focus:outline-none transition">
-                {DURATION_PRESETS.map((p) => (
-                  <option key={p.label} value={p.label}>{p.label}</option>
-                ))}
-              </select>
+              <label className="text-sm text-muted-foreground mb-1 block">Time Until Repayment</label>
+              <input
+                type="number"
+                min={0}
+                max={365}
+                step={1}
+                value={repaymentDays}
+                onChange={(e) => handleRepaymentDaysChange(e.target.value)}
+                className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-foreground focus:border-primary focus:outline-none transition"
+              />
             </div>
           </div>
         </div>
@@ -153,15 +233,12 @@ const BorrowForm = () => {
         <RecommendedTermsCard
           aprRange={recommendations.aprRange}
           suggestedMaxLoan={recommendations.suggestedMaxLoan}
-          suggestedDuration={recommendations.suggestedDuration}
+          suggestedRepaymentDays={recommendations.suggestedRepaymentDays}
           riskTier={scores.tier}
           recommendedAPR={recommendations.recommendedAPR}
           onApplyAPR={(apr) => setMaxApr(Number(apr.toFixed(1)))}
-          onApplyAmount={(amt) => setAmount(String(Math.round(amt)))}
-          onApplyDuration={(dur) => {
-            const match = DURATION_PRESETS.find((p) => p.label === dur);
-            if (match) setRepaymentDuration(match.label);
-          }}
+          onApplyAmount={(amt) => setAmount(String(Math.max(0, Math.round(amt))))}
+          onApplyDuration={(days) => setRepaymentDays(Math.min(365, Math.max(0, Math.round(days))))}
         />
 
         <button onClick={handleNavigateToConfirm} className="glow-button w-full flex items-center justify-center gap-2">

@@ -96,6 +96,134 @@ router.get('/loans/borrower/:address', async (req, res) => {
   }
 });
 
+// GET /api/loans/lender/:address — get all bids/positions for a lender (MUST come before /:id)
+router.get('/loans/lender/:address', async (req, res) => {
+  try {
+    console.log('[Loans] fetching lender positions for', req.params.address);
+    const bids = await prisma.bid.findMany({
+      where: { lenderUnlink: req.params.address },
+      include: {
+        loan: {
+          select: {
+            id: true,
+            onChainId: true,
+            borrowerUnlink: true,
+            deadline: true,
+            duration: true,
+            status: true,
+            maxRate: true,
+            amount: true,
+            collateral: true,
+          }
+        }
+      },
+      orderBy: { submittedAt: 'desc' }
+    });
+    res.json(bids);
+  } catch (err) {
+    console.error('[Loans] fetch lender positions error', err);
+    res.status(500).json({ error: 'Failed to fetch lender positions' });
+  }
+});
+
+// POST /api/loans/:id/cancel — borrower cancels an open loan request
+router.post('/loans/:id/cancel', async (req, res) => {
+  try {
+    const { borrowerUnlink } = req.body;
+    const loan = await prisma.loan.findUnique({ where: { id: req.params.id } });
+    if (!loan) return res.status(404).json({ error: 'Loan not found' });
+    if (borrowerUnlink && loan.borrowerUnlink !== borrowerUnlink) {
+      return res.status(403).json({ error: 'Not authorized to cancel this loan' });
+    }
+    if (loan.status !== 'OPEN') {
+      return res.status(400).json({ error: 'Only OPEN loans can be cancelled' });
+    }
+
+    await prisma.$transaction([
+      prisma.loan.update({ where: { id: loan.id }, data: { status: 'CANCELLED' } }),
+      prisma.bid.updateMany({
+        where: { loanId: loan.id, status: 'PENDING' },
+        data: { status: 'CANCELLED' }
+      })
+    ]);
+
+    res.json({ cancelled: true, loanId: loan.id });
+  } catch (err) {
+    console.error('[Loans] cancel loan error', err);
+    res.status(500).json({ error: 'Failed to cancel loan' });
+  }
+});
+
+// DELETE /api/loans/:id — borrower removes a cancelled loan request
+router.delete('/loans/:id', async (req, res) => {
+  try {
+    const { borrowerUnlink } = req.body || {};
+    const loan = await prisma.loan.findUnique({ where: { id: req.params.id } });
+    if (!loan) return res.status(404).json({ error: 'Loan not found' });
+    if (borrowerUnlink && loan.borrowerUnlink !== borrowerUnlink) {
+      return res.status(403).json({ error: 'Not authorized to remove this loan' });
+    }
+    if (loan.status !== 'CANCELLED') {
+      return res.status(400).json({ error: 'Only CANCELLED loans can be removed' });
+    }
+
+    await prisma.$transaction([
+      prisma.bid.deleteMany({ where: { loanId: loan.id } }),
+      prisma.loan.delete({ where: { id: loan.id } })
+    ]);
+
+    res.json({ removed: true, loanId: loan.id });
+  } catch (err) {
+    console.error('[Loans] remove loan error', err);
+    res.status(500).json({ error: 'Failed to remove loan' });
+  }
+});
+
+// POST /api/bids/:id/cancel — lender cancels a pending bid
+router.post('/bids/:id/cancel', async (req, res) => {
+  try {
+    const { lenderUnlink } = req.body;
+    const bid = await prisma.bid.findUnique({ where: { id: req.params.id } });
+    if (!bid) return res.status(404).json({ error: 'Bid not found' });
+    if (lenderUnlink && bid.lenderUnlink !== lenderUnlink) {
+      return res.status(403).json({ error: 'Not authorized to cancel this bid' });
+    }
+    if (bid.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Only PENDING bids can be cancelled' });
+    }
+
+    const updated = await prisma.bid.update({
+      where: { id: bid.id },
+      data: { status: 'CANCELLED' }
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('[Loans] cancel bid error', err);
+    res.status(500).json({ error: 'Failed to cancel bid' });
+  }
+});
+
+// DELETE /api/bids/:id — remove cancelled/refunded bid from lender dashboard
+router.delete('/bids/:id', async (req, res) => {
+  try {
+    const { lenderUnlink } = req.body || {};
+    const bid = await prisma.bid.findUnique({ where: { id: req.params.id } });
+    if (!bid) return res.status(404).json({ error: 'Bid not found' });
+    if (lenderUnlink && bid.lenderUnlink !== lenderUnlink) {
+      return res.status(403).json({ error: 'Not authorized to remove this bid' });
+    }
+    if (bid.status !== 'CANCELLED' && bid.status !== 'REFUNDED') {
+      return res.status(400).json({ error: 'Only CANCELLED or REFUNDED bids can be removed' });
+    }
+
+    await prisma.bid.delete({ where: { id: bid.id } });
+    res.json({ removed: true, bidId: bid.id });
+  } catch (err) {
+    console.error('[Loans] remove bid error', err);
+    res.status(500).json({ error: 'Failed to remove bid' });
+  }
+});
+
 // GET /api/loans/:id — single loan detail + bid count
 router.get('/loans/:id', async (req, res) => {
   try {

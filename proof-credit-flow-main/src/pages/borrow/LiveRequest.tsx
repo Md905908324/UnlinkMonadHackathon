@@ -11,12 +11,14 @@ interface LoanDetail {
   maxRate: number;
   deadline: string;
   creditScore?: number;
+  createdAt: string;
+  duration?: number;
   status?: string;
   _count?: { bids: number };
 }
 
 const LiveRequest = () => {
-  const { activeLoanId } = useBorrowContext();
+  const { activeLoanId, activeLoanMeta } = useBorrowContext();
   const [loan, setLoan] = useState<LoanDetail | null>(null);
   const [bidCount, setBidCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState<string>("");
@@ -57,7 +59,7 @@ const LiveRequest = () => {
         return;
       }
 
-      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const hours = Math.ceil(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
@@ -112,11 +114,15 @@ const LiveRequest = () => {
     return "badge-high";
   };
 
-  // Calculate remaining duration
-  const deadline = new Date(loan.deadline);
-  const durationMs = deadline.getTime() - new Date().getTime();
-  const durationDays = Math.max(0, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
-
+  const fallbackRiskTier = getRiskTier(loan.creditScore ?? 600);
+  const fallbackRiskBadge = getRiskBadgeClass(loan.creditScore ?? 600);
+  const riskTier = activeLoanMeta?.riskTier ?? fallbackRiskTier;
+  const riskBadgeClass = activeLoanMeta?.riskTier === "Low" ? "badge-low" : activeLoanMeta?.riskTier === "Medium" ? "badge-medium" : activeLoanMeta?.riskTier === "High" ? "badge-high" : fallbackRiskBadge;
+  const askDurationLabel = activeLoanMeta?.askDuration ?? `${Math.round((loan.duration ?? 0))} hours`;
+  const repaymentDays = activeLoanMeta?.repaymentDurationDays ?? 30;
+  const repaymentDue = new Date(new Date(loan.createdAt).getTime() + repaymentDays * 24 * 60 * 60 * 1000);
+  const repaymentDiffMs = repaymentDue.getTime() - Date.now();
+  const repaymentDaysLeft = Math.max(0, Math.ceil(repaymentDiffMs / (1000 * 60 * 60 * 24)));
 
   return (
     <div className="min-h-screen pt-24 px-6 pb-12">
@@ -131,8 +137,9 @@ const LiveRequest = () => {
               <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>${parseInt(loan.amount).toLocaleString()}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Collateral</span><span>${parseInt(loan.collateral || "0").toLocaleString()}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Max APR</span><span>{loan.maxRate}%</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span>{durationDays} day{durationDays !== 1 ? "s" : ""}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Risk Tier</span><span className={`${getRiskBadgeClass(loan.creditScore)} px-2 py-0.5 rounded-full text-xs`}>{getRiskTier(loan.creditScore)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Ask Duration</span><span>{askDurationLabel}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Time Until Repayment</span><span>{repaymentDaysLeft} day{repaymentDaysLeft !== 1 ? "s" : ""}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Risk Tier</span><span className={`${riskBadgeClass} px-2 py-0.5 rounded-full text-xs`}>{riskTier}</span></div>
             </div>
           </div>
 

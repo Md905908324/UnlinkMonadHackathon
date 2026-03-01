@@ -7,6 +7,41 @@ interface WalletContextType {
   disconnect: () => void;
 }
 
+const WALLET_SESSION_KEY = "proofcredit.wallet.session";
+
+function loadWalletSession() {
+  if (typeof window === "undefined") {
+    return { connected: false, address: "" };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(WALLET_SESSION_KEY);
+    if (!raw) return { connected: false, address: "" };
+
+    const parsed = JSON.parse(raw) as { connected?: boolean; address?: string };
+    return {
+      connected: Boolean(parsed.connected && parsed.address),
+      address: parsed.address || "",
+    };
+  } catch {
+    return { connected: false, address: "" };
+  }
+}
+
+function saveWalletSession(connected: boolean, address: string) {
+  if (typeof window === "undefined") return;
+
+  if (!connected || !address) {
+    window.localStorage.removeItem(WALLET_SESSION_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    WALLET_SESSION_KEY,
+    JSON.stringify({ connected: true, address })
+  );
+}
+
 const WalletContext = createContext<WalletContextType>({
   connected: false,
   address: "",
@@ -17,11 +52,24 @@ const WalletContext = createContext<WalletContextType>({
 export const useWallet = () => useContext(WalletContext);
 
 export const WalletProvider = ({ children }: { children: ReactNode }) => {
-  const [connected, setConnected] = useState(false);
-  const [address] = useState("0x7a3b9d4e8c2f1a6b9d4e8c2f1a6b9d4e8c2f9f2E");
+  const initialSession = loadWalletSession();
+  const [connected, setConnected] = useState(initialSession.connected);
+  const [address, setAddress] = useState(initialSession.address);
 
-  const connect = () => setConnected(true);
-  const disconnect = () => setConnected(false);
+  const connect = (nextAddress?: string) => {
+    const normalizedAddress = (nextAddress || "").trim();
+    if (!normalizedAddress) return;
+
+    setAddress(normalizedAddress);
+    setConnected(true);
+    saveWalletSession(true, normalizedAddress);
+  };
+
+  const disconnect = () => {
+    setConnected(false);
+    setAddress("");
+    saveWalletSession(false, "");
+  };
 
   return (
     <WalletContext.Provider value={{ connected, address, connect, disconnect }}>

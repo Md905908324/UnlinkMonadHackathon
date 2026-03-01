@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { CheckCircle, Lock, Loader2, AlertCircle } from "lucide-react";
 import { getLoan, getBids, submitBid } from "@/services/api";
 import { useWallet } from "@/contexts/WalletContext";
 import BidSuggestionBox from "@/components/BidSuggestionBox";
 import { DURATION_PRESETS, computeSuggestedBidAPR } from "@/hooks/useRiskScore";
+import { getLoanClientMeta } from "@/utils/loanMetaStore";
 
 interface Loan {
   id: string;
@@ -13,17 +14,35 @@ interface Loan {
   collateral: string;
   maxRate: number;
   deadline: string;
+  duration?: number;
   creditScore?: number;
   status?: string;
   _count?: { bids: number };
 }
 
+function durationLabelFromDays(days: number): string {
+  const safe = Math.max(0, Number(days) || 0);
+  if (safe < 1) {
+    const hours = Math.round(safe * 24);
+    return `${hours} hour${hours !== 1 ? "s" : ""}`;
+  }
+  const wholeDays = Math.round(safe);
+  return `${wholeDays} day${wholeDays !== 1 ? "s" : ""}`;
+}
+
+function durationLabelFromHours(hours?: number): string {
+  const safeHours = Math.max(0, Number(hours) || 0);
+  if (safeHours < 24) return `${safeHours}h`;
+  const days = Math.round(safeHours / 24);
+  return `${days} day${days !== 1 ? "s" : ""}`;
+}
+
 const DealDetail = () => {
   const { id } = useParams();
   const { address } = useWallet();
-  const [bidAmount, setBidAmount] = useState("2000");
-  const [aprOffer, setAprOffer] = useState("7.4");
-  const [bidExpiry, setBidExpiry] = useState("2m");
+  const [bidAmount, setBidAmount] = useState("0");
+  const [aprOffer, setAprOffer] = useState("6.0");
+  const [bidExpiry, setBidExpiry] = useState("1 day");
   const [bidDuration, setBidDuration] = useState("7 days");
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -54,6 +73,57 @@ const DealDetail = () => {
     fetchData();
   }, [id]);
 
+  const maxDealDays = Math.max(1, ((loan?.duration ?? 24) / 24));
+  const allowedDurationOptions = DURATION_PRESETS
+    .filter((preset) => preset.days <= maxDealDays)
+    .filter((preset, index, list) => list.findIndex((x) => x.days === preset.days) === index)
+    .map((preset) => ({ ...preset, label: durationLabelFromDays(preset.days) }));
+  const durationOptions = allowedDurationOptions.length > 0 ? allowedDurationOptions : [{ label: "1 day", days: 1 }];
+
+  const durationDays = DURATION_PRESETS.find((p) => p.label === bidDuration)?.days ?? 7;
+
+  // Derive risk tier from borrower's credit score
+  const getRiskTier = (creditScore?: number) => {
+    if (!creditScore) return "Unknown";
+    if (creditScore >= 700) return "Low";
+    if (creditScore >= 600) return "Medium";
+    return "High";
+  };
+
+  const getRiskBadgeClass = (creditScore?: number) => {
+    if (!creditScore) return "";
+    if (creditScore >= 700) return "badge-low";
+    if (creditScore >= 600) return "badge-medium";
+    return "badge-high";
+  };
+
+  const borrowerRiskScore = loan?.creditScore || 600;
+  const carriedRiskTier = loan?.id ? getLoanClientMeta(loan.id)?.riskTier : null;
+  const borrowerTier = carriedRiskTier || getRiskTier(borrowerRiskScore);
+  const borrowerTierClass = borrowerTier === "Low" ? "badge-low" : borrowerTier === "High" ? "badge-high" : "badge-medium";
+  const suggestedAPR = computeSuggestedBidAPR(borrowerRiskScore, durationDays);
+  const suggestedLowAPR = Math.max(5, Number((suggestedAPR - 0.8).toFixed(1)));
+  const suggestedHighAPR = Math.min(30, Number((suggestedAPR + 0.8).toFixed(1)));
+
+  useEffect(() => {
+    if (!loan) return;
+    const filtered = DURATION_PRESETS
+      .filter((preset) => preset.days <= Math.max(1, (loan.duration ?? 24) / 24))
+      .filter((preset, index, list) => list.findIndex((x) => x.days === preset.days) === index)
+      .map((preset) => ({ ...preset, label: durationLabelFromDays(preset.days) }));
+    const options = filtered.length > 0 ? filtered : [{ label: "1 day", days: 1 }];
+    const maxOption = options[options.length - 1];
+    setBidDuration(maxOption.label);
+    setBidExpiry(maxOption.label);
+    setBidAmount(String(loan.amount));
+  }, [loan?.id]);
+
+  useEffect(() => {
+    if (!loan) return;
+    const formulaApr = Math.max(6, Number(computeSuggestedBidAPR(borrowerRiskScore, durationDays).toFixed(1)));
+    setAprOffer(formulaApr.toFixed(1));
+  }, [loan?.id, borrowerRiskScore, durationDays]);
+
   if (loading) {
     return (
       <div className="min-h-screen pt-24 px-6 pb-12 flex items-center justify-center">
@@ -70,26 +140,8 @@ const DealDetail = () => {
     );
   }
 
-  const durationDays = DURATION_PRESETS.find((p) => p.label === bidDuration)?.days ?? 7;
-  
-  // Derive risk tier from borrower's credit score
-  const getRiskTier = (creditScore?: number) => {
-    if (!creditScore) return "Unknown";
-    if (creditScore >= 700) return "Low";
-    if (creditScore >= 600) return "Medium";
-    return "High";
-  };
-  
-  const getRiskBadgeClass = (creditScore?: number) => {
-    if (!creditScore) return "";
-    if (creditScore >= 700) return "badge-low";
-    if (creditScore >= 600) return "badge-medium";
-    return "badge-high";
-  };
-  
-  const borrowerRiskScore = loan.creditScore || 600;
-  const borrowerTier = getRiskTier(borrowerRiskScore);
-  const suggestedAPR = computeSuggestedBidAPR(borrowerRiskScore, durationDays);
+  const loanDurationHours = Math.max(0, Number(loan.duration) || 0);
+  const loanDurationLabel = durationLabelFromHours(loanDurationHours);
 
   const handleSubmit = async () => {
     if (!address) {
@@ -137,10 +189,12 @@ const DealDetail = () => {
           <div className="glow-card p-6 animate-fade-in">
             <h3 className="font-heading font-semibold mb-4">Deal Details</h3>
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Amount Requested</span><span>${Number(loan.amount).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Collateral</span><span>${parseInt(loan.collateral || "0").toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span>{Math.ceil((new Date(loan.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Risk Tier</span><span className={`${getRiskBadgeClass(borrowerRiskScore)} px-2 py-0.5 rounded-full text-xs`}>{borrowerTier}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount Requested (USDC)</span><span>${Number(loan.amount).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Collateral Deposit (USDC)</span><span>${parseInt(loan.collateral || "0").toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Max APR Willing to Pay</span><span>{loan.maxRate}%</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Loan Duration</span><span>{loanDurationLabel}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Time Left</span><span>{Math.max(0, Math.ceil((new Date(loan.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60)))}h</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Risk Tier</span><span className={`${borrowerTierClass} px-2 py-0.5 rounded-full text-xs`}>{borrowerTier}</span></div>
             </div>
 
             <div className="mt-6 pt-4 border-t border-border">
@@ -171,7 +225,7 @@ const DealDetail = () => {
                 <div>
                   <label className="text-sm text-muted-foreground mb-1 block">Bid Duration</label>
                   <select value={bidDuration} onChange={(e) => setBidDuration(e.target.value)} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-foreground focus:border-primary focus:outline-none">
-                    {DURATION_PRESETS.map((p) => (
+                    {durationOptions.map((p) => (
                       <option key={p.label} value={p.label}>{p.label}</option>
                     ))}
                   </select>
@@ -179,10 +233,9 @@ const DealDetail = () => {
                 <div>
                   <label className="text-sm text-muted-foreground mb-1 block">Bid Expiry</label>
                   <select value={bidExpiry} onChange={(e) => setBidExpiry(e.target.value)} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-foreground focus:border-primary focus:outline-none">
-                    <option value="30s">30 seconds</option>
-                    <option value="2m">2 minutes</option>
-                    <option value="10m">10 minutes</option>
-                    <option value="clear">Until Clear</option>
+                    {durationOptions.map((p) => (
+                      <option key={p.label} value={p.label}>{p.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -191,9 +244,12 @@ const DealDetail = () => {
             {/* AI Suggestion */}
             <BidSuggestionBox
               suggestedAPR={suggestedAPR}
+              suggestedLowAPR={suggestedLowAPR}
+              suggestedHighAPR={suggestedHighAPR}
               riskTier={borrowerTier}
               durationLabel={bidDuration}
-              onApply={() => setAprOffer(suggestedAPR.toFixed(1))}
+              onApplyLow={() => setAprOffer(suggestedLowAPR.toFixed(1))}
+              onApplyHigh={() => setAprOffer(suggestedHighAPR.toFixed(1))}
             />
 
             {confirmed ? (

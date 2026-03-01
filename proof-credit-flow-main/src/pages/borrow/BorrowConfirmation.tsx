@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Send, CheckCircle, Loader2, AlertCircle } from "lucide-react";
+import { Lock, Send, CheckCircle, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
 import { useBorrowContext } from "@/contexts/BorrowContext";
 import { useWallet } from "@/contexts/WalletContext";
 import { createLoan } from "@/services/api";
-import { DURATION_PRESETS } from "@/hooks/useRiskScore";
+import { setLoanClientMeta } from "@/utils/loanMetaStore";
 
 const BorrowConfirmation = () => {
   const navigate = useNavigate();
-  const { formData, clearFormData, setActiveLoanId } = useBorrowContext();
+  const { formData, clearFormData, setActiveLoanId, setActiveLoanMeta } = useBorrowContext();
   const { address } = useWallet();
   const [step, setStep] = useState(0); // 0=review, 1=locking, 2=listing, 3=done
   const [error, setError] = useState<string | null>(null);
@@ -23,21 +23,36 @@ const BorrowConfirmation = () => {
 
   if (!formData) return null;
 
-  // Calculate summary from stored form data
-  const getDurationDays = (label: string): number => {
-    const preset = DURATION_PRESETS.find((p) => p.label === label);
-    return preset?.days ?? 7;
+  const durationDays = Math.max(1, Number(formData.repaymentDurationDays) || 1);
+  const getAskDurationDays = (label: string): number => {
+    const map: Record<string, number> = {
+      "6 hours": 0.25,
+      "12 hours": 0.5,
+      "1 day": 1,
+      "3 days": 3,
+      "5 days": 5,
+      "7 days": 7,
+      "1 week": 7,
+      "Until Clear": 7,
+    };
+    return map[label] ?? 7;
   };
-
-  const durationDays = getDurationDays(formData.repaymentDuration);
-  const askDurationDays = getDurationDays(formData.askDuration);
+  const askDurationDays = getAskDurationDays(formData.askDuration);
+  const normalizedAskDuration = `${askDurationDays} day${askDurationDays !== 1 ? "s" : ""}`;
+  const riskBadgeClass =
+    formData.riskTier === "Low"
+      ? "badge-low"
+      : formData.riskTier === "High"
+      ? "badge-high"
+      : "badge-medium";
 
   const summary = {
     amount: `$${Number(formData.amount).toLocaleString()} USDC`,
     collateral: `$${Number(formData.collateral).toLocaleString()} USDC`,
     maxApr: `${formData.maxApr}%`,
-    duration: `${durationDays} days`,
-    risk: "Medium", // This would come from credit profile
+    askDuration: normalizedAskDuration,
+    timeUntilRepayment: `${durationDays} day${durationDays !== 1 ? "s" : ""}`,
+    risk: formData.riskTier,
   };
 
   const handleLock = () => {
@@ -67,6 +82,12 @@ const BorrowConfirmation = () => {
       const response = await createLoan(loanRequest);
       setLoanId(response.id);
       setActiveLoanId(response.id);
+      setLoanClientMeta(response.id, { riskTier: formData.riskTier });
+      setActiveLoanMeta({
+        askDuration: formData.askDuration,
+        repaymentDurationDays: durationDays,
+        riskTier: formData.riskTier,
+      });
 
       setTimeout(() => {
         clearFormData();
@@ -81,6 +102,10 @@ const BorrowConfirmation = () => {
   return (
     <div className="min-h-screen pt-24 px-6 pb-12">
       <div className="max-w-lg mx-auto">
+        <button onClick={() => navigate(-1)} className="glow-button-outline text-sm px-3 py-1.5 mb-4 inline-flex items-center gap-2">
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
         <h1 className="font-heading text-3xl font-bold mb-8 animate-fade-in">Confirm Your Request</h1>
 
         {error && (
@@ -98,7 +123,7 @@ const BorrowConfirmation = () => {
             <div key={key} className="flex justify-between py-3 border-b border-border last:border-0">
               <span className="text-sm text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</span>
               <span className="text-sm font-medium">
-                {key === "risk" ? <span className="badge-medium px-2 py-0.5 rounded-full text-xs">{val}</span> : val}
+                {key === "risk" ? <span className={`${riskBadgeClass} px-2 py-0.5 rounded-full text-xs`}>{val}</span> : val}
               </span>
             </div>
           ))}

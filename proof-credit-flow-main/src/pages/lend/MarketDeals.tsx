@@ -2,15 +2,23 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, Bot, ArrowRight } from "lucide-react";
 import { getLoans } from "@/services/api";
+import { getLoanClientMeta } from "@/utils/loanMetaStore";
 
 interface Deal {
   id: string;
   amount: number;
-  duration: number;
+  loanDurationLabel: string;
   risk: string;
   timeLeft: string;
   bidCount: number;
 }
+
+const formatLoanDuration = (hours?: number): string => {
+  const safeHours = Math.max(0, Number(hours) || 0);
+  if (safeHours < 24) return `${safeHours}h`;
+  const days = Math.round(safeHours / 24);
+  return `${days} day${days !== 1 ? "s" : ""}`;
+};
 
 const riskClass = (r: string) => r === "Low" ? "badge-low" : r === "Medium" ? "badge-medium" : "badge-high";
 
@@ -27,11 +35,11 @@ const calculateTimeLeft = (deadline: string): string => {
   const diff = deadlineDate.getTime() - now.getTime();
   if (diff <= 0) return "Expired";
   
-  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const hours = Math.ceil(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   
   if (hours >= 24) {
-    const days = Math.floor(hours / 24);
+    const days = Math.ceil(hours / 24);
     const remainingHours = hours % 24;
     return `${days}d ${remainingHours}h`;
   }
@@ -57,8 +65,8 @@ const MarketDeals = () => {
         const formattedDeals: Deal[] = loans.map((loan: any) => ({
           id: loan.id,
           amount: parseInt(loan.amount) || 0,
-          duration: Math.ceil((new Date(loan.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-          risk: calculateRisk(loan.creditScore),
+          loanDurationLabel: formatLoanDuration(loan.duration),
+          risk: getLoanClientMeta(loan.id)?.riskTier || calculateRisk(loan.creditScore),
           bidCount: loan._count?.bids || 0,
           timeLeft: calculateTimeLeft(loan.deadline),
         }));
@@ -112,7 +120,7 @@ const MarketDeals = () => {
                     <span className={`${riskClass(deal.risk)} text-xs px-2 py-0.5 rounded-full`}>{deal.risk}</span>
                   </div>
                   <div className="space-y-2 text-sm text-muted-foreground">
-                    <div className="flex justify-between"><span>Duration</span><span className="text-foreground">{deal.duration}d</span></div>
+                    <div className="flex justify-between"><span>Loan Duration</span><span className="text-foreground">{deal.loanDurationLabel}</span></div>
                     <div className="flex justify-between"><span>Time Left</span><span className="text-foreground">{deal.timeLeft}</span></div>
                     <div className="flex justify-between"><span>Bids Received</span><span className="text-foreground">{deal.bidCount}</span></div>
                   </div>

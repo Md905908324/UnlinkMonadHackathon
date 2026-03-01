@@ -82,10 +82,36 @@ export async function createLoan(loan: LoanRequest) {
   return res.json();
 }
 
+export async function cancelLoan(loanId: string, borrowerUnlink: string) {
+  const res = await fetch(`${API_URL}/loans/${loanId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ borrowerUnlink }),
+  });
+  if (!res.ok) throw new Error('Failed to cancel loan');
+  return res.json();
+}
+
+export async function removeLoan(loanId: string, borrowerUnlink: string) {
+  const res = await fetch(`${API_URL}/loans/${loanId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ borrowerUnlink }),
+  });
+  if (!res.ok) throw new Error('Failed to remove loan');
+  return res.json();
+}
+
 // Bids
 export async function getBids(loanId: string): Promise<Bid[]> {
   const res = await fetch(`${API_URL}/loans/${loanId}/bids`);
   if (!res.ok) throw new Error('Failed to fetch bids');
+  return res.json();
+}
+
+export async function getLenderPositions(address: string) {
+  const res = await fetch(`${API_URL}/loans/lender/${address}`);
+  if (!res.ok) throw new Error('Failed to fetch lender positions');
   return res.json();
 }
 
@@ -96,6 +122,26 @@ export async function submitBid(loanId: string, bid: BidRequest) {
     body: JSON.stringify(bid),
   });
   if (!res.ok) throw new Error('Failed to submit bid');
+  return res.json();
+}
+
+export async function cancelBid(bidId: string, lenderUnlink: string) {
+  const res = await fetch(`${API_URL}/bids/${bidId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lenderUnlink }),
+  });
+  if (!res.ok) throw new Error('Failed to cancel bid');
+  return res.json();
+}
+
+export async function removeBid(bidId: string, lenderUnlink: string) {
+  const res = await fetch(`${API_URL}/bids/${bidId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lenderUnlink }),
+  });
+  if (!res.ok) throw new Error('Failed to remove bid');
   return res.json();
 }
 
