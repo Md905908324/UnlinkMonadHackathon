@@ -43,7 +43,7 @@ async function startup() {
 startup();
 
 const port = process.env.PORT || 3001;
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`[Server] Running on port ${port}`);
 });
 
