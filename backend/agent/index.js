@@ -16,7 +16,7 @@ async function initAgent() {
     chain: 'monad-testnet',
     storage,
     setup: false,
-    sync: true,
+    sync: false,
   });
 
   // If mnemonic provided, import and create first account
@@ -39,6 +39,7 @@ async function initAgent() {
     if (!list || list.length === 0) {
       await agent.accounts.create();
     }
+    await agent.sync();
   }
 
   return agent;

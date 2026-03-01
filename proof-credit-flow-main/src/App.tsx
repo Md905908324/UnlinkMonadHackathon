@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { WalletProvider } from "@/contexts/WalletContext";
+import { BorrowProvider } from "@/contexts/BorrowContext";
 import Navbar from "@/components/Navbar";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
@@ -24,25 +25,27 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <WalletProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/select" element={<WorkflowSelect />} />
-            <Route path="/borrow/verify" element={<CreditVerification />} />
-            <Route path="/borrow/matching" element={<AIMatching />} />
-            <Route path="/borrow/form" element={<BorrowForm />} />
-            <Route path="/borrow/confirm" element={<BorrowConfirmation />} />
-            <Route path="/borrow/live" element={<LiveRequest />} />
-            <Route path="/lend/market" element={<MarketDeals />} />
-            <Route path="/lend/deal/:id" element={<DealDetail />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
+        <BorrowProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Navbar />
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/select" element={<WorkflowSelect />} />
+              <Route path="/borrow/verify" element={<CreditVerification />} />
+              <Route path="/borrow/matching" element={<AIMatching />} />
+              <Route path="/borrow/form" element={<BorrowForm />} />
+              <Route path="/borrow/confirm" element={<BorrowConfirmation />} />
+              <Route path="/borrow/live" element={<LiveRequest />} />
+              <Route path="/lend/market" element={<MarketDeals />} />
+              <Route path="/lend/deal/:id" element={<DealDetail />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </BorrowProvider>
       </WalletProvider>
     </TooltipProvider>
   </QueryClientProvider>

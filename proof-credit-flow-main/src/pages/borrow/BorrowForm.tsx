@@ -4,16 +4,16 @@ import { CheckCircle, Eye, ArrowRight, HelpCircle } from "lucide-react";
 import RiskSummaryStrip from "@/components/RiskSummaryStrip";
 import RecommendedTermsCard from "@/components/RecommendedTermsCard";
 import { useRiskScore, computeRecommendations, DURATION_PRESETS } from "@/hooks/useRiskScore";
+import { useBorrowContext } from "@/contexts/BorrowContext";
 
 const BorrowForm = () => {
   const navigate = useNavigate();
+  const { setFormData } = useBorrowContext();
   const [amount, setAmount] = useState("10000");
   const [collateral, setCollateral] = useState("5000");
   const [maxApr, setMaxApr] = useState(8);
   const [askDuration, setAskDuration] = useState("7 days");
   const [repaymentDuration, setRepaymentDuration] = useState("7 days");
-  const [requestMode, setRequestMode] = useState<"until_filled" | "deadline">("until_filled");
-  const [allowPartial, setAllowPartial] = useState(true);
   const [showProofModal, setShowProofModal] = useState(false);
 
   // Fixed credit profile (read-only, verified via ZK)
@@ -41,6 +41,17 @@ const BorrowForm = () => {
   const proofBadges = ["Income Verified", "Stability Verified", "Tenure Verified"];
 
   const isUntilClear = repaymentDuration === "Until Clear";
+
+  const handleNavigateToConfirm = () => {
+    setFormData({
+      amount,
+      collateral,
+      maxApr,
+      askDuration,
+      repaymentDuration,
+    });
+    navigate("/borrow/confirm");
+  };
 
   return (
     <div className="min-h-screen pt-24 px-6 pb-12">
@@ -136,31 +147,7 @@ const BorrowForm = () => {
           </div>
         </div>
 
-        {/* Request Mode */}
-        <div>
-          <p className="text-sm text-muted-foreground mb-3">Request Mode</p>
-          <div className="space-y-3">
-            <label className={`glow-card p-4 flex items-start gap-3 cursor-pointer ${requestMode === "until_filled" ? "glow-card-active" : ""}`}>
-              <input type="radio" name="mode" checked={requestMode === "until_filled"} onChange={() => setRequestMode("until_filled")} className="mt-1 accent-primary" />
-              <div>
-                <p className="font-medium text-sm">Until Fully Filled</p>
-                <p className="text-xs text-muted-foreground">Keep listing until full amount is matched.</p>
-              </div>
-            </label>
-            <label className={`glow-card p-4 flex items-start gap-3 cursor-pointer ${requestMode === "deadline" ? "glow-card-active" : ""}`}>
-              <input type="radio" name="mode" checked={requestMode === "deadline"} onChange={() => setRequestMode("deadline")} className="mt-1 accent-primary" />
-              <div>
-                <p className="font-medium text-sm">By Deadline</p>
-                <p className="text-xs text-muted-foreground">Set a deadline. Cancel if not fully filled.</p>
-              </div>
-            </label>
-          </div>
-        </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={allowPartial} onChange={(e) => setAllowPartial(e.target.checked)} className="accent-primary" />
-          Allow Partial Fills
-        </label>
 
         {/* Recommended Terms */}
         <RecommendedTermsCard
@@ -177,7 +164,7 @@ const BorrowForm = () => {
           }}
         />
 
-        <button onClick={() => navigate("/borrow/confirm")} className="glow-button w-full flex items-center justify-center gap-2">
+        <button onClick={handleNavigateToConfirm} className="glow-button w-full flex items-center justify-center gap-2">
           Preview & List Request
           <ArrowRight className="w-4 h-4" />
         </button>

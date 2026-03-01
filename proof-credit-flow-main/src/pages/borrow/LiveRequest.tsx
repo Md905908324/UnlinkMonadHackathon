@@ -1,84 +1,199 @@
 import { useState, useEffect } from "react";
-import { CheckCircle, Clock } from "lucide-react";
+import { Lock, Timer, ShieldCheck } from "lucide-react";
+import { useBorrowContext } from "@/contexts/BorrowContext";
+import { getLoan, getBids } from "@/services/api";
 
-const mockOffers = [
-  { id: 1, apr: "7.2%", amount: "$2,000", status: "Accepted" },
-  { id: 2, apr: "7.5%", amount: "$1,200", status: "Accepted" },
-  { id: 3, apr: "7.8%", amount: "$1,000", status: "Pending" },
-];
+interface LoanDetail {
+  id: string;
+  borrowerUnlink: string;
+  amount: string;
+  collateral: string;
+  maxRate: number;
+  deadline: string;
+  creditScore?: number;
+  status?: string;
+  _count?: { bids: number };
+}
 
 const LiveRequest = () => {
-  const [filled, setFilled] = useState(4200);
-  const total = 10000;
-  const [autoAccept, setAutoAccept] = useState(true);
+  const { activeLoanId } = useBorrowContext();
+  const [loan, setLoan] = useState<LoanDetail | null>(null);
+  const [bidCount, setBidCount] = useState(0);
+  const [timeLeft, setTimeLeft] = useState<string>("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setFilled((p) => Math.min(p + Math.floor(Math.random() * 500), total));
-    }, 3000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!activeLoanId) return;
 
-  const pct = (filled / total) * 100;
+    const fetchLoan = async () => {
+      try {
+        const loanData = await getLoan(activeLoanId);
+        setLoan(loanData);
+        setLoading(false);
+
+        // Poll for bid count
+        const bidsData = await getBids(activeLoanId);
+        setBidCount(bidsData?.length || 0);
+      } catch (err) {
+        console.error("Failed to fetch loan", err);
+        setLoading(false);
+      }
+    };
+
+    fetchLoan();
+  }, [activeLoanId]);
+
+  useEffect(() => {
+    if (!loan) return;
+
+    const deadline = new Date(loan.deadline);
+
+    const updateCountdown = () => {
+      const now = new Date();
+      const diff = deadline.getTime() - now.getTime();
+
+      if (diff <= 0) {
+        setTimeLeft("Deadline reached - executing...");
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
+    };
+
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+
+    // Poll for new bids every 3 seconds
+    const bidTimer = setInterval(async () => {
+      try {
+        const bidsData = await getBids(activeLoanId);
+        setBidCount(bidsData?.length || 0);
+      } catch (err) {
+        console.error("Failed to fetch bids", err);
+      }
+    }, 3000);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(bidTimer);
+    };
+  }, [loan, activeLoanId]);
+
+  if (!activeLoanId) {
+    return (
+      <div className="min-h-screen pt-24 px-6 pb-12 flex items-center justify-center">
+        <p className="text-muted-foreground">No active loan – please create one first.</p>
+      </div>
+    );
+  }
+
+  if (loading || !loan) {
+    return (
+      <div className="min-h-screen pt-24 px-6 pb-12 flex items-center justify-center">
+        <p className="text-muted-foreground">Loading loan details…</p>
+      </div>
+    );
+  }
+
+  // Compute risk tier from credit score
+  const getRiskTier = (creditScore: number) => {
+    if (creditScore >= 700) return "Low";
+    if (creditScore >= 600) return "Medium";
+    return "High";
+  };
+
+  const getRiskBadgeClass = (creditScore: number) => {
+    if (creditScore >= 700) return "badge-low";
+    if (creditScore >= 600) return "badge-medium";
+    return "badge-high";
+  };
+
+  // Calculate remaining duration
+  const deadline = new Date(loan.deadline);
+  const durationMs = deadline.getTime() - new Date().getTime();
+  const durationDays = Math.max(0, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
+
 
   return (
     <div className="min-h-screen pt-24 px-6 pb-12">
       <div className="max-w-5xl mx-auto">
-        <h1 className="font-heading text-3xl font-bold mb-8 animate-fade-in">Live Borrow Request</h1>
+        <h1 className="font-heading text-3xl font-bold mb-8 animate-fade-in">Sealed Auction Posted</h1>
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Deal Summary */}
           <div className="glow-card p-6 animate-fade-in">
-            <h3 className="font-heading font-semibold mb-4">Deal Summary</h3>
+            <h3 className="font-heading font-semibold mb-4">Loan Details</h3>
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>$10,000</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Collateral</span><span>$5,500</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Max APR</span><span>7.5%</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span>14 days</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Risk Tier</span><span className="badge-low px-2 py-0.5 rounded-full text-xs">Low</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span>${parseInt(loan.amount).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Collateral</span><span>${parseInt(loan.collateral || "0").toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Max APR</span><span>{loan.maxRate}%</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span>{durationDays} day{durationDays !== 1 ? "s" : ""}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Risk Tier</span><span className={`${getRiskBadgeClass(loan.creditScore)} px-2 py-0.5 rounded-full text-xs`}>{getRiskTier(loan.creditScore)}</span></div>
             </div>
           </div>
 
-          {/* Fill Progress */}
+          {/* Auction Countdown */}
           <div className="glow-card p-6 animate-fade-in" style={{ animationDelay: "100ms" }}>
-            <h3 className="font-heading font-semibold mb-4">Fill Progress</h3>
-            <div className="text-center mb-4">
-              <span className="text-3xl font-heading font-bold text-primary">${filled.toLocaleString()}</span>
-              <span className="text-muted-foreground text-lg"> / ${total.toLocaleString()}</span>
+            <h3 className="font-heading font-semibold mb-4 flex items-center gap-2">
+              <Timer className="w-5 h-5 text-primary" />
+              Auction Deadline
+            </h3>
+            <div className="text-center mb-6">
+              <p className="text-muted-foreground text-sm mb-2">Time until execution:</p>
+              <span className="text-4xl font-heading font-bold text-primary font-mono">{timeLeft}</span>
             </div>
-            <div className="w-full h-3 bg-secondary rounded-full overflow-hidden">
-              <div className="progress-fill h-full" style={{ width: `${pct}%` }} />
+            <div className="bg-secondary/50 rounded-lg px-4 py-3 text-xs text-muted-foreground border border-border">
+              <p className="font-medium text-foreground mb-1">Sealed Auction</p>
+              <p>All bids are encrypted and hidden until the deadline. Execution happens automatically at the deadline using Unlink's privacy layer.</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-2 text-center">{pct.toFixed(1)}% filled</p>
-
-            <label className="flex items-center justify-center gap-2 mt-6 text-sm">
-              <input type="checkbox" checked={autoAccept} onChange={(e) => setAutoAccept(e.target.checked)} className="accent-primary" />
-              Auto-accept best available
-            </label>
           </div>
 
-          {/* Offers */}
+          {/* Sealed Bids Status */}
           <div className="glow-card p-6 animate-fade-in" style={{ animationDelay: "200ms" }}>
-            <h3 className="font-heading font-semibold mb-4">Incoming Offers</h3>
-            <div className="space-y-3">
-              {mockOffers.map((o) => (
-                <div key={o.id} className="flex items-center justify-between bg-secondary rounded-xl px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium">{o.amount}</p>
-                    <p className="text-xs text-muted-foreground">APR: {o.apr}</p>
-                  </div>
-                  <span className={`text-xs flex items-center gap-1 ${o.status === "Accepted" ? "text-success" : "text-warning"}`}>
-                    {o.status === "Accepted" ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                    {o.status}
-                  </span>
-                </div>
-              ))}
+            <h3 className="font-heading font-semibold mb-4 flex items-center gap-2">
+              <Lock className="w-5 h-5 text-primary" />
+              Private Bids
+            </h3>
+            <div className="text-center mb-6">
+              <p className="text-muted-foreground text-sm mb-2">Bids received:</p>
+              <span className="text-4xl font-heading font-bold text-primary">{bidCount}</span>
+            </div>
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <p>Bid amounts hidden until deadline</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <p>Interest rates encrypted via Unlink</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <p>Agent will match best rates at deadline</p>
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Info Box */}
+        <div className="glow-card p-6 mt-6 animate-fade-in" style={{ animationDelay: "300ms" }}>
+          <h3 className="font-heading font-semibold mb-3">How a Sealed Auction Works</h3>
+          <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
+            <li>Your loan request is posted with a maximum APR you're willing to pay.</li>
+            <li>Lenders submit bids privately—amounts and rates are encrypted via Unlink.</li>
+            <li>When the deadline arrives, the agent automatically matches the lowest-rate bids at the best rates available.</li>
+            <li>You pay the final matched APR, which is typically lower than your maximum.</li>
+            <li>No real-time bid visible = no opportunity for bidders to game the auction.</li>
+          </ol>
         </div>
       </div>
     </div>
   );
+
 };
 
 export default LiveRequest;

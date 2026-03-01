@@ -14,16 +14,23 @@ router.use((req, res, next) => {
 // POST /api/loans — borrower creates request
 router.post('/loans', async (req, res) => {
   try {
-    const { borrowerUnlink, amount, duration, maxRate, onChainId } = req.body;
-    console.log('[Loans] create loan request', { borrowerUnlink, amount, duration, maxRate, onChainId });
+    const { borrowerUnlink, amount, collateral, durationHours, maxRate, onChainId } = req.body;
+    console.log('[Loans] create loan request', { borrowerUnlink, amount, collateral, durationHours, maxRate, onChainId });
 
     // Verify they have a credit profile
     const profile = await prisma.creditProfile.findUnique({ where: { unlinkAddress: borrowerUnlink } });
+    console.log('[Loans] profile lookup result', profile ? 'found' : 'NOT FOUND', borrowerUnlink);
     if (!profile) return res.status(400).json({ error: 'Complete onboarding first' });
 
-    // use duration (in hours) as the bidding window on the marketplace
+    // Validate durationHours
+    const durationHoursNum = Number(durationHours);
+    if (!durationHoursNum || durationHoursNum <= 0) {
+      return res.status(400).json({ error: 'Invalid duration' });
+    }
+
+    // use durationHours as the bidding window on the marketplace
     const deadline = new Date();
-    deadline.setHours(deadline.getHours() + Number(duration));
+    deadline.setHours(deadline.getHours() + durationHoursNum);
     console.log('[Loans] deadline set to', deadline.toISOString());
 
     const loan = await prisma.loan.create({
@@ -32,7 +39,8 @@ router.post('/loans', async (req, res) => {
         borrowerUnlink,
         creditScore: profile.creditScore,
         amount: String(amount),
-        duration,
+        collateral: String(collateral),
+        duration: durationHoursNum,
         deadline,
         maxRate,
       }
@@ -41,8 +49,8 @@ router.post('/loans', async (req, res) => {
     console.log('[Loans] created', loan.id);
     res.json(loan);
   } catch (err) {
-    console.error('[Loans] create error', err);
-    res.status(500).json({ error: 'Failed to create loan' });
+    console.error('[Loans] create error', err.message || err);
+    res.status(400).json({ error: err.message || 'Failed to create loan' });
   }
 });
 
@@ -57,6 +65,7 @@ router.get('/loans', async (req, res) => {
         onChainId: true,
         creditScore: true,
         amount: true,
+        collateral: true,
         duration: true,
         deadline: true,
         maxRate: true,
@@ -68,6 +77,22 @@ router.get('/loans', async (req, res) => {
   } catch (err) {
     console.error('[Loans] list error', err);
     res.status(500).json({ error: 'Failed to list loans' });
+  }
+});
+
+// GET /api/loans/borrower/:address — get all loans for a borrower (MUST come before /:id)
+router.get('/loans/borrower/:address', async (req, res) => {
+  try {
+    console.log('[Loans] fetching loans for borrower', req.params.address);
+    const loans = await prisma.loan.findMany({
+      where: { borrowerUnlink: req.params.address },
+      include: { _count: { select: { bids: true } }, bids: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(loans);
+  } catch (err) {
+    console.error('[Loans] fetch borrower loans error', err);
+    res.status(500).json({ error: 'Failed to fetch borrower loans' });
   }
 });
 

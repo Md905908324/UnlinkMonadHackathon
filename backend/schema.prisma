@@ -9,10 +9,11 @@ datasource db {
 
 model Loan {
   id             String   @id @default(uuid())
-  onChainId      Int      @unique
+  onChainId      String   @default(uuid())
   borrowerUnlink String
   creditScore    Int
   amount         String
+  collateral     String
   duration       Int
   deadline       DateTime
   maxRate        Float
@@ -40,7 +41,7 @@ model Bid {
 model CreditProfile {
   id             String   @id @default(uuid())
   unlinkAddress  String   @unique
-  walletAddress  String   @unique
+  walletAddress  String?
   creditScore    Int
   declaredIncome Int
   createdAt      DateTime @default(now())

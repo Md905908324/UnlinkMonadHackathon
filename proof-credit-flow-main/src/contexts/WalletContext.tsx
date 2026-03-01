@@ -3,7 +3,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 interface WalletContextType {
   connected: boolean;
   address: string;
-  connect: () => void;
+  connect: (address?: string) => void;
   disconnect: () => void;
 }
 
@@ -18,7 +18,7 @@ export const useWallet = () => useContext(WalletContext);
 
 export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [connected, setConnected] = useState(false);
-  const [address] = useState("0x7a3b...9f2E");
+  const [address] = useState("0x7a3b9d4e8c2f1a6b9d4e8c2f1a6b9d4e8c2f9f2E");
 
   const connect = () => setConnected(true);
   const disconnect = () => setConnected(false);

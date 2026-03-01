@@ -1,8 +1,53 @@
-import { useState } from "react";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Clock, Shield } from "lucide-react";
+import { useState, useEffect } from "react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Clock, Shield, Loader2, AlertCircle } from "lucide-react";
+import { useWallet } from "@/contexts/WalletContext";
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+interface LoanDetail {
+  id: string;
+  amount: string;
+  collateral: string;
+  maxRate: number;
+  deadline: string;
+  duration: number;
+  status: string;
+  bids: any[];
+  _count?: { bids: number };
+}
 
 const Dashboard = () => {
   const [view, setView] = useState<"borrower" | "lender">("borrower");
+  const { address } = useWallet();
+  const [borrowerLoans, setBorrowerLoans] = useState<LoanDetail[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!address || view !== "borrower") return;
+
+    const fetchBorrowerLoans = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`${API_URL}/loans/borrower/${address}`);
+        if (!res.ok) throw new Error("Failed to fetch loans");
+        const data = await res.json();
+        setBorrowerLoans(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load loans");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBorrowerLoans();
+  }, [address, view]);
+
+  // Calculate totals for borrower view
+  const totalOutstanding = borrowerLoans.reduce((sum, loan) => sum + (parseInt(loan.amount) || 0), 0);
+  const totalCollateral = borrowerLoans.reduce((sum, loan) => sum + (parseInt(loan.collateral) || 0), 0);
+  const avgRate = borrowerLoans.length > 0 ? (borrowerLoans.reduce((sum, loan) => sum + (loan.maxRate || 0), 0) / borrowerLoans.length).toFixed(1) : "0";
 
   return (
     <div className="min-h-screen pt-24 px-6 pb-12">
@@ -27,28 +72,60 @@ const Dashboard = () => {
 
         {view === "borrower" ? (
           <div className="space-y-6 animate-fade-in">
-            <div className="grid sm:grid-cols-3 gap-4">
-              <StatCard icon={DollarSign} label="Outstanding Balance" value="$7,800" />
-              <StatCard icon={Clock} label="Next Payment" value="In 6 days" />
-              <StatCard icon={Activity} label="Health Score" value="92%" accent />
-            </div>
-
-            <div className="glow-card p-6">
-              <h3 className="font-heading font-semibold mb-4">Active Loan</h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Original Amount</span><span>$10,000</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Remaining</span><span>$7,800</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">APR</span><span>7.2%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Maturity</span><span>14 days</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Collateral Locked</span><span>$5,500</span></div>
+            {!address ? (
+              <div className="glow-card p-6 text-center">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-warning" />
+                <p className="text-muted-foreground">Connect your wallet to view borrower positions</p>
               </div>
-              <div className="mt-4">
-                <div className="w-full h-3 bg-secondary rounded-full overflow-hidden">
-                  <div className="progress-fill h-full" style={{ width: "22%" }} />
+            ) : loading ? (
+              <div className="glow-card p-6 text-center">
+                <Loader2 className="w-8 h-8 mx-auto animate-spin" />
+              </div>
+            ) : error ? (
+              <div className="glow-card p-6 text-center">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-destructive" />
+                <p className="text-destructive text-sm">{error}</p>
+              </div>
+            ) : borrowerLoans.length === 0 ? (
+              <div className="glow-card p-6 text-center">
+                <p className="text-muted-foreground">No active loan requests yet</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <StatCard icon={DollarSign} label="Outstanding Balance" value={`$${totalOutstanding.toLocaleString()}`} />
+                  <StatCard icon={Clock} label="Active Requests" value={borrowerLoans.length.toString()} />
+                  <StatCard icon={Activity} label="Avg Max Rate" value={`${avgRate}%`} accent />
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">22% repaid</p>
-              </div>
-            </div>
+
+                <div className="glow-card p-6">
+                  <h3 className="font-heading font-semibold mb-4">Your Loan Requests</h3>
+                  <div className="space-y-3">
+                    {borrowerLoans.map((loan) => {
+                      const bidCount = loan._count?.bids || loan.bids?.length || 0;
+                      const timeLeft = new Date(loan.deadline).getTime() - Date.now();
+                      const hoursLeft = Math.max(0, Math.floor(timeLeft / (1000 * 60 * 60)));
+                      return (
+                        <div key={loan.id} className="bg-secondary rounded-xl px-4 py-3 text-sm">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-mono text-muted-foreground">{loan.id.slice(0, 8)}</span>
+                            <span className={`text-xs px-2 py-1 rounded ${loan.status === 'OPEN' ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'}`}>
+                              {loan.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>${parseInt(loan.amount).toLocaleString()}</span>
+                            <span className="text-muted-foreground">{loan.maxRate}% APR</span>
+                            <span className="text-muted-foreground">{bidCount} bid{bidCount !== 1 ? 's' : ''}</span>
+                            <span className="text-muted-foreground">{hoursLeft}h left</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-6 animate-fade-in">

@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
-import { processExpiredLoans, checkForDefaults } from './agent/index.js';
+import { initAgent, startCrons } from './agent/index.js';
 import loansRouter from './routes/loans.js';
 import creditRouter from './routes/credit.js';
 
@@ -26,16 +26,26 @@ app.use((req, res, next) => {
 app.use('/api', loansRouter);
 app.use('/api', creditRouter);
 
-console.log('[Agent] Starting...');
+// initialize agent and start cron jobs
+async function startup() {
+  try {
+    console.log('[Agent] Initializing...');
+    await initAgent();
+    console.log('[Agent] Initialized successfully');
+    
+    startCrons();
+  } catch (err) {
+    console.error('[Agent] Failed to initialize', err);
+    process.exit(1);
+  }
+}
+
+startup();
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => {
   console.log(`[Server] Running on port ${port}`);
 });
-
-// start the cron jobs after server is up
-processExpiredLoans();
-checkForDefaults();
 
 // error handler
 app.use((err, req, res, next) => {

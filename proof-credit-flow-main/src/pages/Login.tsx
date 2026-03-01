@@ -1,23 +1,53 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWallet } from "@/contexts/WalletContext";
-import { Shield, KeyRound, ArrowRight, AlertCircle } from "lucide-react";
+import { Shield, KeyRound, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
+import { createCreditProfile } from "@/services/api";
+import { ethers } from "ethers";
 
 const Login = () => {
   const { connect } = useWallet();
   const navigate = useNavigate();
   const [mnemonic, setMnemonic] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleImport = () => {
+  const handleImport = async () => {
     const words = mnemonic.trim().split(/\s+/);
     if (words.length !== 12 && words.length !== 24) {
       setError("Please enter a valid 12 or 24-word mnemonic phrase.");
       return;
     }
-    setError("");
-    connect();
-    setTimeout(() => navigate("/select"), 300);
+    
+    try {
+      setError("");
+      setLoading(true);
+      
+      // Derive wallet from mnemonic
+      let derivedAddress: string;
+      try {
+        const wallet = ethers.Wallet.fromPhrase(mnemonic.trim());
+        derivedAddress = wallet.address;
+      } catch {
+        const hash = ethers.keccak256(ethers.toUtf8Bytes(mnemonic.trim()));
+        const wallet = new ethers.Wallet(hash);
+        derivedAddress = wallet.address;
+      }
+      
+      // Connect wallet
+      connect();
+      
+      await createCreditProfile({
+        unlinkAddress: derivedAddress,
+        declaredIncome: 5000,
+      });
+      
+      setLoading(false);
+      setTimeout(() => navigate("/select"), 300);
+    } catch (err) {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : "Failed to connect wallet");
+    }
   };
 
   return (
@@ -47,7 +77,8 @@ const Login = () => {
               }}
               placeholder="Enter your 12 or 24-word seed phrase separated by spaces…"
               rows={4}
-              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+              disabled={loading}
+              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none disabled:opacity-50"
             />
             {error && (
               <p className="flex items-center gap-1.5 text-sm text-destructive mt-2">
@@ -59,11 +90,20 @@ const Login = () => {
 
           <button
             onClick={handleImport}
-            disabled={!mnemonic.trim()}
+            disabled={!mnemonic.trim() || loading}
             className="glow-button w-full text-sm px-6 py-3 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Import Wallet
-            <ArrowRight className="w-4 h-4" />
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              <>
+                Import Wallet
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
 
           <p className="text-xs text-muted-foreground text-center leading-relaxed">
