@@ -2,6 +2,8 @@
 
 This repository contains the backend and frontend for the Unlink loan bidding demo.
 
+This project is forked from the original hackathon repository. I contributed to the frontend development, helped connect the frontend and backend, and made additional patches and refinements to improve the application's functionality, usability, and overall quality.
+
 ## Backend
 
 The backend is a minimal Node/Express service that:
@@ -25,7 +27,7 @@ The backend is a minimal Node/Express service that:
    # then fill in AGENT_MNEMONIC, USDC_ADDRESS, etc.
    ```
 
-3. **Generate Prisma client & migrate
+3. **Generate Prisma client & migrate**
    ```bash
    npx prisma generate
    npm run prisma:migrate
@@ -41,7 +43,7 @@ The backend is a minimal Node/Express service that:
    The API listens on `http://localhost:3001` by default.
 
 5. **Fund agent wallet**
-   Request testnet tokens for the `AGENT_MNEMONIC` address and send USDC to it. The agent never holds funds long–it immediately forwards them during processing.
+   Request testnet tokens for the `AGENT_MNEMONIC` address and send USDC to it. The agent never holds funds long—it immediately forwards them during processing.
 
 ### API endpoints
 See the `routes/` directory for full implementations. Some useful routes:
@@ -53,8 +55,8 @@ See the `routes/` directory for full implementations. Some useful routes:
 * `POST /api/admin/trigger/:id` – force-expire a loan (demo only)
 
 ### Agent logic
-Check `agent/index.js` for the matching and default-handling routines. The cron jobs fire every minute and every 5 minutes.
+Check `agent/index.js` for the matching and default-handling routines. The cron jobs fire every minute and every 5 minutes.
 
 ---
 
-The `frontend/` folder contains the React UI (not yet implemented).
+The `frontend/` folder contains the React UI.
